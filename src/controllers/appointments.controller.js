@@ -6,7 +6,7 @@ const appointmentsController = {
         try {
             const { date } = req.query;
             let query = `
-                SELECT a.id, a.client_name, a.service_id, a.appointment_date, a.status, 
+                SELECT a.id, a.client_name, a.service_id, a.appointment_date, a.status, a.total_value,
                        s.name as service_name, s.description as service_description, 
                        s.price as service_price, s.duration as service_duration
                 FROM appointments a 
@@ -59,7 +59,7 @@ const appointmentsController = {
             const { date } = req.params;
 
             const [appointments] = await db.query(`
-                SELECT a.id, a.client_name, a.service_id, a.appointment_date, a.status,
+                SELECT a.id, a.client_name, a.service_id, a.appointment_date, a.status, a.total_value,
                        s.name as service_name, s.description as service_description,
                        s.price as service_price, s.duration as service_duration
                 FROM appointments a
@@ -103,11 +103,14 @@ const appointmentsController = {
                 return res.status(400).json({ message: 'Please provide all required fields' });
             }
 
-            // Check if service exists
+            // Check if service exists and get its price
             const [service] = await db.query('SELECT * FROM services WHERE id = ?', [service_id]);
             if (service.length === 0) {
                 return res.status(404).json({ message: 'Service not found' });
             }
+
+            // Get the service price for total_value
+            const total_value = service[0].price;
 
             // Check if the time slot is available
             const [conflictingAppointments] = await db.query(`
@@ -120,8 +123,8 @@ const appointmentsController = {
             }
 
             const [result] = await db.query(
-                'INSERT INTO appointments (client_name, service_id, appointment_date, status) VALUES (?, ?, ?, ?)',
-                [client_name, service_id, appointment_date, 'scheduled']
+                'INSERT INTO appointments (client_name, service_id, appointment_date, status, total_value) VALUES (?, ?, ?, ?, ?)',
+                [client_name, service_id, appointment_date, 'scheduled', total_value]
             );
 
             const [newAppointment] = await db.query(`
@@ -139,9 +142,9 @@ const appointmentsController = {
     },    // Update an appointment
     updateAppointment: async (req, res) => {
         try {
-            const { client_name, service_id, appointment_date, status } = req.body;
+            const { client_name, service_id, appointment_date, status, total_value } = req.body;
             
-            if (!client_name && !service_id && !appointment_date && !status) {
+            if (!client_name && !service_id && !appointment_date && !status && total_value === undefined) {
                 return res.status(400).json({ message: 'Please provide at least one field to update' });
             }
 
@@ -151,24 +154,28 @@ const appointmentsController = {
                 return res.status(404).json({ message: 'Appointment not found' });
             }
 
-            // If service_id is being updated, check if the new service exists
-            if (service_id) {
+            let newTotalValue = total_value !== undefined ? total_value : appointment[0].total_value;
+
+            // If service_id is being updated and total_value wasn't provided, update total_value based on service price
+            if (service_id && total_value === undefined) {
                 const [service] = await db.query('SELECT * FROM services WHERE id = ?', [service_id]);
                 if (service.length === 0) {
                     return res.status(404).json({ message: 'Service not found' });
                 }
+                newTotalValue = service[0].price;
             }
 
             const updatedAppointment = {
                 client_name: client_name || appointment[0].client_name,
                 service_id: service_id || appointment[0].service_id,
                 appointment_date: appointment_date || appointment[0].appointment_date,
-                status: status || appointment[0].status
+                status: status || appointment[0].status,
+                total_value: newTotalValue
             };
 
             await db.query(
-                'UPDATE appointments SET client_name = ?, service_id = ?, appointment_date = ?, status = ? WHERE id = ?',
-                [updatedAppointment.client_name, updatedAppointment.service_id, updatedAppointment.appointment_date, updatedAppointment.status, req.params.id]
+                'UPDATE appointments SET client_name = ?, service_id = ?, appointment_date = ?, status = ?, total_value = ? WHERE id = ?',
+                [updatedAppointment.client_name, updatedAppointment.service_id, updatedAppointment.appointment_date, updatedAppointment.status, updatedAppointment.total_value, req.params.id]
             );
 
             const [updated] = await db.query(`
