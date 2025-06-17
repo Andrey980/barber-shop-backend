@@ -208,7 +208,94 @@ const appointmentsController = {
             console.error(error);
             res.status(500).json({ message: 'Error deleting appointment' });
         }
-    }
+    },
+
+    // Get appointment statistics for a specific year and month
+    getAppointmentStats: async (req, res) => {
+        try {
+            const { year, month } = req.query;
+            
+            if (!year || !month) {
+                return res.status(400).json({ message: 'Year and month are required' });
+            }
+
+            const [stats] = await db.query(`
+                SELECT 
+                    COUNT(*) as total_appointments,
+                    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_appointments,
+                    COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled_appointments,
+                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_appointments,
+                    AVG(total_value) as average_value
+                FROM appointments
+                WHERE YEAR(appointment_date) = ? AND MONTH(appointment_date) = ?
+            `, [year, month]);
+
+            res.json(stats[0]);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Error fetching appointment statistics' });
+        }
+    },
+
+    // Get monthly revenue for a specific year and month
+    getMonthlyRevenue: async (req, res) => {
+        try {
+            const { year, month } = req.query;
+            
+            if (!year || !month) {
+                return res.status(400).json({ message: 'Year and month are required' });
+            }
+
+            const [revenue] = await db.query(`
+                SELECT 
+                    DAY(appointment_date) as day,
+                    COUNT(*) as appointments_count,
+                    SUM(total_value) as daily_revenue
+                FROM appointments
+                WHERE YEAR(appointment_date) = ? 
+                AND MONTH(appointment_date) = ?
+                AND status = 'completed'
+                GROUP BY DAY(appointment_date)
+                ORDER BY day ASC
+            `, [year, month]);
+
+            res.json(revenue);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Error fetching monthly revenue' });
+        }
+    },
+
+    // Get revenue by services for a specific year and month
+    getServiceRevenue: async (req, res) => {
+        try {
+            const { year, month } = req.query;
+            
+            if (!year || !month) {
+                return res.status(400).json({ message: 'Year and month are required' });
+            }
+
+            const [revenue] = await db.query(`
+                SELECT 
+                    s.id as service_id,
+                    s.name as service_name,
+                    COUNT(*) as appointment_count,
+                    SUM(a.total_value) as total_revenue
+                FROM appointments a
+                JOIN services s ON a.service_id = s.id
+                WHERE YEAR(a.appointment_date) = ? 
+                AND MONTH(a.appointment_date) = ?
+                AND a.status = 'completed'
+                GROUP BY s.id, s.name
+                ORDER BY total_revenue DESC
+            `, [year, month]);
+
+            res.json(revenue);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Error fetching service revenue' });
+        }
+    },
 };
 
 module.exports = appointmentsController;

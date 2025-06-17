@@ -8,6 +8,15 @@ router.get('/', appointmentsController.getAppointments);
 // Get days that have appointments
 router.get('/days-with-appointments', appointmentsController.getDaysWithAppointments);
 
+// Get statistics for appointments
+router.get('/stats', appointmentsController.getAppointmentStats);
+
+// Get monthly revenue
+router.get('/revenue/monthly', appointmentsController.getMonthlyRevenue);
+
+// Get revenue by services
+router.get('/revenue/services', appointmentsController.getServiceRevenue);
+
 // Get appointments by specific date
 router.get('/by-date/:date', appointmentsController.getAppointmentsByDate);
 
