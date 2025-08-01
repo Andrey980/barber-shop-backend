@@ -103,7 +103,7 @@ const appointmentsController = {
     },    // Create a new appointment
     createAppointment: async (req, res) => {
         try {
-            const { client_name, client_phone, service_id, professional_id, appointment_date } = req.body;
+            const { client_name, client_phone, service_id, professional_id, appointment_date, status = 'scheduled', total_value } = req.body;
 
             if (!client_name || !client_phone || !service_id || !appointment_date) {
                 return res.status(400).json({ message: 'Please provide all required fields' });
@@ -123,13 +123,13 @@ const appointmentsController = {
                 }
             }
 
-            // Get the service price for total_value
-            const total_value = service[0].price;
+            // Use provided total_value or fall back to service price
+            const finalTotalValue = total_value !== undefined ? total_value : service[0].price;
 
             // Check if the time slot is available for the specific professional (if provided)
             let conflictQuery = `
                 SELECT * FROM appointments 
-                WHERE appointment_date = ?
+                WHERE appointment_date = ? AND status != 'cancelled'
             `;
             let conflictParams = [appointment_date];
 
@@ -145,8 +145,8 @@ const appointmentsController = {
             }
 
             const [result] = await db.query(
-                'INSERT INTO appointments (client_name, client_phone, service_id, professional_id, appointment_date, status, total_value) VALUES (?, ?, ?, ?, ?, ?)',
-                [client_name, client_phone, service_id, professional_id || null, appointment_date, 'scheduled', total_value]
+                'INSERT INTO appointments (client_name, client_phone, service_id, professional_id, appointment_date, status, total_value) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [client_name, client_phone, service_id, professional_id || null, appointment_date, status, finalTotalValue]
             );
 
             const [newAppointment] = await db.query(`
@@ -160,8 +160,8 @@ const appointmentsController = {
 
             res.status(201).json(newAppointment[0]);
         } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Error creating appointment' });
+            console.error('Error creating appointment:', error);
+            res.status(500).json({ message: 'Error creating appointment', error: error.message });
         }
     },    // Update an appointment
     updateAppointment: async (req, res) => {
