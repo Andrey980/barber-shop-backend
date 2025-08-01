@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const appointmentsRoutes = require('./routes/appointments.routes');
 const servicesRoutes = require('./routes/services.routes');
+const professionalsRoutes = require('./routes/professionals.routes');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -15,6 +16,7 @@ app.use(express.json());
 // Routes
 app.use('/api/appointments', appointmentsRoutes);
 app.use('/api/services', servicesRoutes);
+app.use('/api/professionals', professionalsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

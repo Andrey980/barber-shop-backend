@@ -6,11 +6,13 @@ const appointmentsController = {
         try {
             const { date } = req.query;
             let query = `
-                SELECT a.id, a.client_name, a.service_id, a.appointment_date, a.status, a.total_value,
+                SELECT a.id, a.client_name, a.service_id, a.professional_id, a.appointment_date, a.status, a.total_value,
                        s.name as service_name, s.description as service_description, 
-                       s.price as service_price, s.duration as service_duration
+                       s.price as service_price, s.duration as service_duration,
+                       p.nome as professional_name
                 FROM appointments a 
                 JOIN services s ON a.service_id = s.id
+                LEFT JOIN professionals p ON a.professional_id = p.id
             `;
             
             const queryParams = [];
@@ -59,11 +61,13 @@ const appointmentsController = {
             const { date } = req.params;
 
             const [appointments] = await db.query(`
-                SELECT a.id, a.client_name, a.service_id, a.appointment_date, a.status, a.total_value,
+                SELECT a.id, a.client_name, a.service_id, a.professional_id, a.appointment_date, a.status, a.total_value,
                        s.name as service_name, s.description as service_description,
-                       s.price as service_price, s.duration as service_duration
+                       s.price as service_price, s.duration as service_duration,
+                       p.nome as professional_name
                 FROM appointments a
                 JOIN services s ON a.service_id = s.id
+                LEFT JOIN professionals p ON a.professional_id = p.id
                 WHERE DATE(a.appointment_date) = ?
                 ORDER BY a.appointment_date ASC
             `, [date]);
@@ -79,9 +83,11 @@ const appointmentsController = {
     getAppointmentById: async (req, res) => {
         try {
             const [appointment] = await db.query(`
-                SELECT a.*, s.name as service_name, s.duration, s.price 
+                SELECT a.*, s.name as service_name, s.duration, s.price,
+                       p.nome as professional_name
                 FROM appointments a 
                 JOIN services s ON a.service_id = s.id 
+                LEFT JOIN professionals p ON a.professional_id = p.id
                 WHERE a.id = ?
             `, [req.params.id]);
             
@@ -97,9 +103,9 @@ const appointmentsController = {
     },    // Create a new appointment
     createAppointment: async (req, res) => {
         try {
-            const { client_name, service_id, appointment_date } = req.body;
-            
-            if (!client_name || !service_id || !appointment_date) {
+            const { client_name, client_phone, service_id, professional_id, appointment_date } = req.body;
+
+            if (!client_name || !client_phone || !service_id || !appointment_date) {
                 return res.status(400).json({ message: 'Please provide all required fields' });
             }
 
@@ -109,28 +115,46 @@ const appointmentsController = {
                 return res.status(404).json({ message: 'Service not found' });
             }
 
+            // Check if professional exists (if provided)
+            if (professional_id) {
+                const [professional] = await db.query('SELECT * FROM professionals WHERE id = ? AND status = ?', [professional_id, 'ativo']);
+                if (professional.length === 0) {
+                    return res.status(404).json({ message: 'Professional not found or inactive' });
+                }
+            }
+
             // Get the service price for total_value
             const total_value = service[0].price;
 
-            // Check if the time slot is available
-            const [conflictingAppointments] = await db.query(`
+            // Check if the time slot is available for the specific professional (if provided)
+            let conflictQuery = `
                 SELECT * FROM appointments 
-                WHERE appointment_date = ? AND service_id = ?
-            `, [appointment_date, service_id]);
+                WHERE appointment_date = ?
+            `;
+            let conflictParams = [appointment_date];
+
+            if (professional_id) {
+                conflictQuery += ` AND professional_id = ?`;
+                conflictParams.push(professional_id);
+            }
+
+            const [conflictingAppointments] = await db.query(conflictQuery, conflictParams);
 
             if (conflictingAppointments.length > 0) {
-                return res.status(400).json({ message: 'This time slot is not available' });
+                return res.status(400).json({ message: 'This time slot is not available for the selected professional' });
             }
 
             const [result] = await db.query(
-                'INSERT INTO appointments (client_name, service_id, appointment_date, status, total_value) VALUES (?, ?, ?, ?, ?)',
-                [client_name, service_id, appointment_date, 'scheduled', total_value]
+                'INSERT INTO appointments (client_name, client_phone, service_id, professional_id, appointment_date, status, total_value) VALUES (?, ?, ?, ?, ?, ?)',
+                [client_name, client_phone, service_id, professional_id || null, appointment_date, 'scheduled', total_value]
             );
 
             const [newAppointment] = await db.query(`
-                SELECT a.*, s.name as service_name, s.duration, s.price 
+                SELECT a.*, s.name as service_name, s.duration, s.price,
+                       p.nome as professional_name
                 FROM appointments a 
                 JOIN services s ON a.service_id = s.id 
+                LEFT JOIN professionals p ON a.professional_id = p.id
                 WHERE a.id = ?
             `, [result.insertId]);
 
@@ -142,9 +166,9 @@ const appointmentsController = {
     },    // Update an appointment
     updateAppointment: async (req, res) => {
         try {
-            const { client_name, service_id, appointment_date, status, total_value } = req.body;
-            
-            if (!client_name && !service_id && !appointment_date && !status && total_value === undefined) {
+            const { client_name, client_phone, service_id, appointment_date, status, total_value } = req.body;
+
+            if (!client_name && !client_phone && !service_id && !appointment_date && !status && total_value === undefined) {
                 return res.status(400).json({ message: 'Please provide at least one field to update' });
             }
 
@@ -167,6 +191,7 @@ const appointmentsController = {
 
             const updatedAppointment = {
                 client_name: client_name || appointment[0].client_name,
+                client_phone: client_phone || appointment[0].client_phone,
                 service_id: service_id || appointment[0].service_id,
                 appointment_date: appointment_date || appointment[0].appointment_date,
                 status: status || appointment[0].status,
@@ -174,8 +199,8 @@ const appointmentsController = {
             };
 
             await db.query(
-                'UPDATE appointments SET client_name = ?, service_id = ?, appointment_date = ?, status = ?, total_value = ? WHERE id = ?',
-                [updatedAppointment.client_name, updatedAppointment.service_id, updatedAppointment.appointment_date, updatedAppointment.status, updatedAppointment.total_value, req.params.id]
+                'UPDATE appointments SET client_name = ?, client_phone = ?, service_id = ?, appointment_date = ?, status = ?, total_value = ? WHERE id = ?',
+                [updatedAppointment.client_name, updatedAppointment.client_phone, updatedAppointment.service_id, updatedAppointment.appointment_date, updatedAppointment.status, updatedAppointment.total_value, req.params.id]
             );
 
             const [updated] = await db.query(`
@@ -294,6 +319,40 @@ const appointmentsController = {
         } catch (error) {
             console.error(error);
             res.status(500).json({ message: 'Error fetching service revenue' });
+        }
+    },
+
+    // Get appointments by professional
+    getAppointmentsByProfessional: async (req, res) => {
+        try {
+            const { professionalId } = req.params;
+            const { date } = req.query;
+
+            let query = `
+                SELECT a.id, a.client_name, a.service_id, a.professional_id, a.appointment_date, a.status, a.total_value,
+                       s.name as service_name, s.description as service_description,
+                       s.price as service_price, s.duration as service_duration,
+                       p.nome as professional_name
+                FROM appointments a
+                JOIN services s ON a.service_id = s.id
+                LEFT JOIN professionals p ON a.professional_id = p.id
+                WHERE a.professional_id = ?
+            `;
+            
+            const queryParams = [professionalId];
+            
+            if (date) {
+                query += ` AND DATE(a.appointment_date) = ?`;
+                queryParams.push(date);
+            }
+            
+            query += ` ORDER BY a.appointment_date ASC`;
+
+            const [appointments] = await db.query(query, queryParams);
+            res.json(appointments);
+        } catch (error) {
+            console.error('Error fetching appointments by professional:', error);
+            res.status(500).json({ message: 'Error fetching appointments by professional' });
         }
     },
 };

@@ -20,6 +20,9 @@ router.get('/revenue/services', appointmentsController.getServiceRevenue);
 // Get appointments by specific date
 router.get('/by-date/:date', appointmentsController.getAppointmentsByDate);
 
+// Get appointments by professional
+router.get('/by-professional/:professionalId', appointmentsController.getAppointmentsByProfessional);
+
 // Get a single appointment
 router.get('/:id', appointmentsController.getAppointmentById);
 
